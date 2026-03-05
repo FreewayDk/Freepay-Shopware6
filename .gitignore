@@ -1,0 +1,29 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Composer
+/vendor/
+composer.lock
+
+# Shopware
+/var/
+/public/
+/files/
+.env.local
+
+# Testing
+/phpunit.xml
+/.phpunit.result.cache
+
+# Logs
+*.log
+
+# Temp
+*.tmp
+*.bak

@@ -1,0 +1,32 @@
+{
+    "name": "freepay/freepay-shopware6",
+    "description": "Freepay payment integration for Shopware 6",
+    "version": "1.0.0",
+    "type": "shopware-platform-plugin",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Freepay"
+        }
+    ],
+    "require": {
+        "shopware/core": "~6.7.0",
+        "shopware/storefront": "~6.7.0"
+    },
+    "extra": {
+        "shopware-plugin-class": "Freepay\\Shopware\\FreepayPaymentShopware6",
+        "label": {
+            "da-DK": "Freepay Betalingsintegration",
+            "en-GB": "Freepay Payment Integration"
+        },
+        "description": {
+            "da-DK": "Betalingsintegration med Freepay Payment Service Provider",
+            "en-GB": "Payment integration with Freepay Payment Service Provider"
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Freepay\\Shopware\\": "src/"
+        }
+    }
+}
