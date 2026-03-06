@@ -4,10 +4,10 @@
 
 ### Copy to Shopware
 ```bash
-cp -r FreepayPayment /path/to/shopware/custom/plugins/
+cp -r FreepayPaymentShopware6 /path/to/shopware/custom/plugins/
 cd /path/to/shopware
 bin/console plugin:refresh
-bin/console plugin:install --activate FreepayPayment
+bin/console plugin:install --activate FreepayPaymentShopware6
 bin/console cache:clear
 ```
 

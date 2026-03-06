@@ -14,42 +14,9 @@
         </input-field>
 
         <input-field type="text">
-            <name>merchantId</name>
-            <label>Merchant ID</label>
-            <label lang="da-DK">Forhandler-ID</label>
-            <required>true</required>
-        </input-field>
-
-        <input-field type="password">
             <name>apiKey</name>
-            <label>API Key</label>
-            <label lang="da-DK">API-nøgle</label>
-            <required>true</required>
-        </input-field>
-
-        <input-field type="password">
-            <name>webhookSecret</name>
-            <label>Webhook Secret</label>
-            <label lang="da-DK">Webhook-hemmelighed</label>
-            <required>true</required>
-        </input-field>
-    </card>
-
-    <card>
-        <title>API Endpoints</title>
-        <title lang="da-DK">API-endepunkter</title>
-
-        <input-field type="text">
-            <name>apiUrlProduction</name>
-            <label>Production API URL</label>
-            <defaultValue>https://api.freepay.com/v1</defaultValue>
-            <required>true</required>
-        </input-field>
-
-        <input-field type="text">
-            <name>apiUrlSandbox</name>
-            <label>Sandbox API URL</label>
-            <defaultValue>https://sandbox.freepay.com/v1</defaultValue>
+            <label>Communication key</label>
+            <label lang="da-DK">Kommunikationsnøgle</label>
             <required>true</required>
         </input-field>
     </card>
@@ -59,29 +26,12 @@
         <title lang="da-DK">Betalingsindstillinger</title>
 
         <input-field type="bool">
-            <name>autoCapture</name>
-            <label>Automatic Capture</label>
+            <name>captureOnShipment</name>
+            <label>Capture on shipment</label>
             <defaultValue>false</defaultValue>
-        </input-field>
-
-        <input-field type="int">
-            <name>transactionTimeout</name>
-            <label>Transaction Timeout (seconds)</label>
-            <defaultValue>1800</defaultValue>
-            <min>300</min>
-            <max>3600</max>
-        </input-field>
-
-        <input-field type="bool">
-            <name>enableLogging</name>
-            <label>Enable Debug Logging</label>
-            <defaultValue>true</defaultValue>
-        </input-field>
-
-        <input-field type="bool">
-            <name>sendCustomerData</name>
-            <label>Send Customer Data to Freepay</label>
-            <defaultValue>true</defaultValue>
+            <helpText>
+                A capture request will be sent to Freepay whenever you make a shipment.
+            </helpText>
         </input-field>
     </card>
 </config>

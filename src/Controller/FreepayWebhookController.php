@@ -4,11 +4,13 @@ namespace Freepay\Shopware\Controller;
 
 use Freepay\Shopware\Service\FreepayApiClient;
 use Psr\Log\LoggerInterface;
-use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStateHandler;
+use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStates;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
+use Shopware\Core\System\StateMachine\StateMachineRegistry;
+use Shopware\Core\System\StateMachine\Transition;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -20,20 +22,20 @@ use Symfony\Component\Routing\Annotation\Route;
 class FreepayWebhookController extends AbstractController
 {
     private FreepayApiClient $apiClient;
-    private OrderTransactionStateHandler $transactionStateHandler;
+    private StateMachineRegistry $stateMachineRegistry;
     private EntityRepository $orderTransactionRepository;
     private SystemConfigService $systemConfigService;
     private LoggerInterface $logger;
 
     public function __construct(
         FreepayApiClient $apiClient,
-        OrderTransactionStateHandler $transactionStateHandler,
+        StateMachineRegistry $stateMachineRegistry,
         EntityRepository $orderTransactionRepository,
         SystemConfigService $systemConfigService,
         LoggerInterface $logger
     ) {
         $this->apiClient = $apiClient;
-        $this->transactionStateHandler = $transactionStateHandler;
+        $this->stateMachineRegistry = $stateMachineRegistry;
         $this->orderTransactionRepository = $orderTransactionRepository;
         $this->systemConfigService = $systemConfigService;
         $this->logger = $logger;
@@ -54,12 +56,6 @@ class FreepayWebhookController extends AbstractController
             if (!$payload) {
                 $this->logger->error('Invalid webhook payload - not valid JSON' );
                 return new JsonResponse(['error' => 'Invalid payload'], Response::HTTP_BAD_REQUEST);
-            }
-
-            $signature = $request->headers->get('X-Freepay-Signature', '');
-            if (!$this->apiClient->verifyWebhookSignature($payload, $signature)) {
-                $this->logger->error('Webhook signature verification failed');
-                return new JsonResponse(['error' => 'Invalid signature'], Response::HTTP_UNAUTHORIZED);
             }
 
             $freepayTransactionId = $payload['transaction_id'] ?? null;
@@ -140,28 +136,84 @@ class FreepayWebhookController extends AbstractController
                 case 'paid':
                 case 'completed':
                 case 'captured':
-                    $this->transactionStateHandler->paid($transactionId, $context);
+                    $this->stateMachineRegistry->transition(
+                        new Transition(
+                            OrderTransactionStates::STATE_MACHINE,
+                            $transactionId,
+                            OrderTransactionStates::STATE_PAID,
+                            'stateId'
+                        ),
+                        $context
+                    );
                     break;
                 case 'authorized':
-                    $this->transactionStateHandler->authorize($transactionId, $context);
+                    $this->stateMachineRegistry->transition(
+                        new Transition(
+                            OrderTransactionStates::STATE_MACHINE,
+                            $transactionId,
+                            OrderTransactionStates::STATE_AUTHORIZED,
+                            'stateId'
+                        ),
+                        $context
+                    );
                     break;
                 case 'pending':
                 case 'processing':
-                    $this->transactionStateHandler->process($transactionId, $context);
+                    $this->stateMachineRegistry->transition(
+                        new Transition(
+                            OrderTransactionStates::STATE_MACHINE,
+                            $transactionId,
+                            OrderTransactionStates::STATE_IN_PROGRESS,
+                            'stateId'
+                        ),
+                        $context
+                    );
                     break;
                 case 'failed':
                 case 'declined':
-                    $this->transactionStateHandler->fail($transactionId, $context);
+                    $this->stateMachineRegistry->transition(
+                        new Transition(
+                            OrderTransactionStates::STATE_MACHINE,
+                            $transactionId,
+                            OrderTransactionStates::STATE_FAILED,
+                            'stateId'
+                        ),
+                        $context
+                    );
                     break;
                 case 'cancelled':
                 case 'canceled':
-                    $this->transactionStateHandler->cancel($transactionId, $context);
+                    $this->stateMachineRegistry->transition(
+                        new Transition(
+                            OrderTransactionStates::STATE_MACHINE,
+                            $transactionId,
+                            OrderTransactionStates::STATE_CANCELLED,
+                            'stateId'
+                        ),
+                        $context
+                    );
                     break;
                 case 'refunded':
-                    $this->transactionStateHandler->refund($transactionId, $context);
+                    $this->stateMachineRegistry->transition(
+                        new Transition(
+                            OrderTransactionStates::STATE_MACHINE,
+                            $transactionId,
+                            OrderTransactionStates::STATE_REFUNDED,
+                            'stateId'
+                        ),
+                        $context
+                    );
                     break;
                 case 'partially_refunded':
-                    $this->transactionStateHandler->refundPartially($transactionId, $context);
+                    $this->stateMachineRegistry->transition(
+                        new Transition(
+                            OrderTransactionStates::STATE_MACHINE,
+                            $transactionId,
+                            OrderTransactionStates::STATE_PARTIALLY_REFUNDED,
+                            'stateId'
+                        ),
+                        $context
+                    );
                     break;
                 default:
                     $this->logger->warning('Unknown payment status from webhook', ['status' => $status]);

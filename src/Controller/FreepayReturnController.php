@@ -3,10 +3,12 @@
 namespace Freepay\Shopware\Controller;
 
 use Psr\Log\LoggerInterface;
-use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStateHandler;
+use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStates;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Shopware\Core\System\StateMachine\StateMachineRegistry;
+use Shopware\Core\System\StateMachine\Transition;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Shopware\Storefront\Controller\StorefrontController;
 use Symfony\Component\HttpFoundation\Request;
@@ -16,18 +18,18 @@ use Symfony\Component\Routing\Annotation\Route;
 #[Route(defaults: ['_routeScope' => ['storefront']])]
 class FreepayReturnController extends StorefrontController
 {
-    private OrderTransactionStateHandler $transactionStateHandler;
+    private StateMachineRegistry $stateMachineRegistry;
     private EntityRepository $orderTransactionRepository;
     private SystemConfigService $systemConfigService;
     private LoggerInterface $logger;
 
     public function __construct(
-        OrderTransactionStateHandler $transactionStateHandler,
+        StateMachineRegistry $stateMachineRegistry,
         EntityRepository $orderTransactionRepository,
         SystemConfigService $systemConfigService,
         LoggerInterface $logger
     ) {
-        $this->transactionStateHandler = $transactionStateHandler;
+        $this->stateMachineRegistry = $stateMachineRegistry;
         $this->orderTransactionRepository = $orderTransactionRepository;
         $this->systemConfigService = $systemConfigService;
         $this->logger = $logger;
@@ -83,7 +85,15 @@ class FreepayReturnController extends StorefrontController
             $context = Context::createDefaultContext();
             
             try {
-                $this->transactionStateHandler->cancel($transactionId, $context);
+                $this->stateMachineRegistry->transition(
+                    new Transition(
+                        OrderTransactionStates::STATE_MACHINE,
+                        $transactionId,
+                        OrderTransactionStates::STATE_CANCELLED,
+                        'stateId'
+                    ),
+                    $context
+                );
                 
                 $criteria = new Criteria([$transactionId]);
                 $criteria->addAssociation('order');

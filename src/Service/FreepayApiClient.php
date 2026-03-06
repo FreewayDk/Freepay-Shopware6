@@ -25,30 +25,15 @@ class FreepayApiClient
      */
     public function createPaymentSession(array $paymentData, ?string $salesChannelId = null): ?array
     {
-        $apiUrl = $this->getApiUrl($salesChannelId);
-        $endpoint = $apiUrl . '/payments';
-
-        $payload = [
-            'merchant_id' => $this->getConfig('merchantId', $salesChannelId),
-            'amount' => $paymentData['amount'],
-            'currency' => $paymentData['currency'],
-            'order_id' => $paymentData['order_id'],
-            'transaction_id' => $paymentData['transaction_id'],
-            'return_url' => $paymentData['return_url'],
-            'webhook_url' => $this->getWebhookUrl(),
-            'customer' => $paymentData['customer'] ?? [],
-            'timestamp' => time(),
-        ];
+        $endpoint = 'gw.freepay.dk/api/payment';
 
         try {
-            $response = $this->sendRequest('POST', $endpoint, $payload, $salesChannelId);
+            $response = $this->sendRequest('POST', $endpoint, $paymentData, $salesChannelId);
 
-            if ($this->isLoggingEnabled($salesChannelId)) {
-                $this->logger->info('Freepay payment session created', [
-                    'order_id' => $paymentData['order_id'],
-                    'response' => $response,
-                ]);
-            }
+            // $this->logger->info('Freepay payment session created', [
+            //     'order_id' => $paymentData['order_id'],
+            //     'response' => $response,
+            // ]);
 
             return $response;
 
@@ -68,17 +53,15 @@ class FreepayApiClient
     public function getPaymentStatus(string $freepayTransactionId, ?string $salesChannelId = null): ?array
     {
         $apiUrl = $this->getApiUrl($salesChannelId);
-        $endpoint = $apiUrl . '/payments/' . $freepayTransactionId;
+        $endpoint = $apiUrl . $freepayTransactionId;
 
         try {
             $response = $this->sendRequest('GET', $endpoint, [], $salesChannelId);
 
-            if ($this->isLoggingEnabled($salesChannelId)) {
-                $this->logger->info('Freepay payment status retrieved', [
-                    'freepay_transaction_id' => $freepayTransactionId,
-                    'status' => $response['status'] ?? 'unknown',
-                ]);
-            }
+            // $this->logger->info('Freepay payment status retrieved', [
+            //     'freepay_transaction_id' => $freepayTransactionId,
+            //     'status' => $response['status'] ?? 'unknown',
+            // ]);
 
             return $response;
 
@@ -98,7 +81,7 @@ class FreepayApiClient
     public function capturePayment(string $freepayTransactionId, ?int $amount = null, ?string $salesChannelId = null): ?array
     {
         $apiUrl = $this->getApiUrl($salesChannelId);
-        $endpoint = $apiUrl . '/payments/' . $freepayTransactionId . '/capture';
+        $endpoint = $apiUrl . $freepayTransactionId . '/capture';
 
         $payload = [];
         if ($amount !== null) {
@@ -131,7 +114,7 @@ class FreepayApiClient
     public function refundPayment(string $freepayTransactionId, ?int $amount = null, ?string $salesChannelId = null): ?array
     {
         $apiUrl = $this->getApiUrl($salesChannelId);
-        $endpoint = $apiUrl . '/payments/' . $freepayTransactionId . '/refund';
+        $endpoint = $apiUrl . $freepayTransactionId . '/credit';
 
         $payload = [];
         if ($amount !== null) {
@@ -159,33 +142,6 @@ class FreepayApiClient
     }
 
     /**
-     * Verifies webhook signature from Freepay
-     */
-    public function verifyWebhookSignature(array $payload, string $signature, ?string $salesChannelId = null): bool
-    {
-        $secret = $this->getConfig('webhookSecret', $salesChannelId);
-        
-        if (!$secret) {
-            $this->logger->error('Webhook secret not configured');
-            return false;
-        }
-
-        $payloadString = json_encode($payload, JSON_UNESCAPED_SLASHES);
-        $expectedSignature = hash_hmac('sha256', $payloadString, $secret);
-
-        $isValid = hash_equals($expectedSignature, $signature);
-
-        if (!$isValid) {
-            $this->logger->warning('Invalid webhook signature', [
-                'expected' => $expectedSignature,
-                'received' => $signature,
-            ]);
-        }
-
-        return $isValid;
-    }
-
-    /**
      * Sends HTTP request to Freepay API
      */
     private function sendRequest(string $method, string $endpoint, array $payload, ?string $salesChannelId = null): array
@@ -201,7 +157,7 @@ class FreepayApiClient
             'headers' => [
                 'Content-Type' => 'application/json',
                 'Accept' => 'application/json',
-                'Authorization' => 'Bearer ' . $apiKey,
+                'Authorization' => $apiKey,
             ],
         ];
 
@@ -228,35 +184,13 @@ class FreepayApiClient
 
     private function getApiUrl(?string $salesChannelId = null): string
     {
-        $sandboxMode = $this->systemConfigService->getBool(
-            'FreepayPayment.config.sandboxMode',
-            $salesChannelId
-        );
-
-        if ($sandboxMode) {
-            return $this->getConfig('apiUrlSandbox', $salesChannelId);
-        }
-
-        return $this->getConfig('apiUrlProduction', $salesChannelId);
-    }
-
-    private function getWebhookUrl(): string
-    {
-        return $_ENV['APP_URL'] . '/freepay/webhook';
+        return 'https://mw.freepay.dk/api/v2/';
     }
 
     private function getConfig(string $key, ?string $salesChannelId = null): ?string
     {
         return $this->systemConfigService->getString(
-            'FreepayPayment.config.' . $key,
-            $salesChannelId
-        );
-    }
-
-    private function isLoggingEnabled(?string $salesChannelId = null): bool
-    {
-        return $this->systemConfigService->getBool(
-            'FreepayPayment.config.enableLogging',
+            'FreepayPaymentShopware6.config.' . $key,
             $salesChannelId
         );
     }
