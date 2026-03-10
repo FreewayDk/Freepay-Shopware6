@@ -29,6 +29,7 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
     private EntityRepository $orderRepository;
     private EntityRepository $orderTransactionRepository;
     private EntityRepository $refundRepository;
+    private string $shopwareVersion;
 
     public function __construct(
         OrderTransactionStateHandler $transactionStateHandler,
@@ -37,7 +38,8 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
         LoggerInterface $logger,
         EntityRepository $orderRepository,
         EntityRepository $orderTransactionRepository,
-        EntityRepository $refundRepository
+        EntityRepository $refundRepository,
+        string $shopwareVersion
     ) {
         $this->transactionStateHandler = $transactionStateHandler;
         $this->apiClient = $apiClient;
@@ -46,6 +48,7 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
         $this->orderRepository = $orderRepository;
         $this->orderTransactionRepository = $orderTransactionRepository;
         $this->refundRepository = $refundRepository;
+        $this->shopwareVersion = $shopwareVersion;
     }
 
     public function supports(
@@ -73,6 +76,18 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
             $salesChannelId = $order->getSalesChannelId();
             $currencyCode = $order->getCurrency()?->getIsoCode();
 
+            $pluginRepository = $this->container->get('plugin.repository');
+           
+            $plugin = $pluginRepository->search(
+                (new Criteria())->addFilter(new EqualsFilter('name', 'freepay-payment-shopware6')),
+                Context::createDefaultContext()
+            )->first();
+
+            if ($plugin) {
+                $version = $plugin->getVersion();
+            }
+
+
             // Prepare payment data
             $paymentData = [
                 'OrderNumber' => $order->getOrderNumber(),
@@ -84,15 +99,15 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
                 'Client' => array(
                     'CMS'				=> array(
                         'Name'			=> "Shopware",
-                        'Version'		=> getShopwareVersion(),
+                        'Version'		=> $this->shopwareVersion,
                     ),
                     'Shop'				=> array(
                         'Name'			=> "Shopware",
-                        'Version'		=> getShopwareVersion()
+                        'Version'		=> $this->shopwareVersion
                     ),
                     'Plugin'			=> array(
                         'Name'			=> "Freepay",
-                        'Version'		=> getPluginVersion()
+                        'Version'		=> $version ?? 'Unknown'
                     ),
                     'API'   			=> array(
                         'Name'			=> "Freepay",
