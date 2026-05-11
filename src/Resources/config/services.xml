@@ -17,6 +17,7 @@
             <argument type="service" id="order.repository"/>
             <argument type="service" id="order_transaction.repository"/>
             <argument type="service" id="order_transaction_capture_refund.repository"/>
+            <argument type="service" id="plugin.repository"/>
             <argument>%kernel.shopware_version%</argument>
             <tag name="shopware.payment.method"/>
         </service>

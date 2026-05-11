@@ -13,6 +13,7 @@ use Shopware\Core\Framework\Plugin\Context\DeactivateContext;
 use Shopware\Core\Framework\Plugin\Context\InstallContext;
 use Shopware\Core\Framework\Plugin\Context\UninstallContext;
 use Shopware\Core\Framework\Plugin\Util\PluginIdProvider;
+use Shopware\Core\System\CustomField\CustomFieldTypes;
 
 class FreepayPaymentShopware6 extends Plugin
 {
@@ -21,12 +22,16 @@ class FreepayPaymentShopware6 extends Plugin
     public function install(InstallContext $installContext): void
     {
         $this->addPaymentMethod($installContext->getContext());
+        $this->registerCustomFieldSet($installContext->getContext());
     }
 
     public function uninstall(UninstallContext $uninstallContext): void
     {
-        // Keep payment method data for historical orders
         $this->setPaymentMethodIsActive(false, $uninstallContext->getContext());
+
+        if (!$uninstallContext->keepUserData()) {
+            $this->removeCustomFieldSet($uninstallContext->getContext());
+        }
     }
 
     public function activate(ActivateContext $activateContext): void
@@ -39,6 +44,57 @@ class FreepayPaymentShopware6 extends Plugin
     {
         $this->setPaymentMethodIsActive(false, $deactivateContext->getContext());
         parent::deactivate($deactivateContext);
+    }
+
+    private function registerCustomFieldSet(Context $context): void
+    {
+        $repository = $this->container->get('custom_field_set.repository');
+
+        $repository->upsert([
+            [
+                'name' => 'freepay_order_transaction',
+                'config' => [
+                    'label' => ['en-GB' => 'Freepay', 'da-DK' => 'Freepay'],
+                ],
+                'relations' => [
+                    ['entityName' => 'order_transaction'],
+                ],
+                'customFields' => [
+                    [
+                        'name' => 'freepay_payment_identifier',
+                        'type' => CustomFieldTypes::TEXT,
+                        'config' => [
+                            'label' => ['en-GB' => 'Payment Identifier', 'da-DK' => 'Betalingsidentifikator'],
+                            'customFieldType' => 'text',
+                            'customFieldPosition' => 1,
+                        ],
+                    ],
+                    [
+                        'name' => 'freepay_authorization_identifier',
+                        'type' => CustomFieldTypes::TEXT,
+                        'config' => [
+                            'label' => ['en-GB' => 'Authorization Identifier', 'da-DK' => 'Autorisationsidentifikator'],
+                            'customFieldType' => 'text',
+                            'customFieldPosition' => 2,
+                        ],
+                    ],
+                ],
+            ],
+        ], $context);
+    }
+
+    private function removeCustomFieldSet(Context $context): void
+    {
+        $repository = $this->container->get('custom_field_set.repository');
+
+        $criteria = new Criteria();
+        $criteria->addFilter(new EqualsFilter('name', 'freepay_order_transaction'));
+
+        $id = $repository->searchIds($criteria, $context)->firstId();
+
+        if ($id) {
+            $repository->delete([['id' => $id]], $context);
+        }
     }
 
     private function getPaymentMethodRepository(): EntityRepository

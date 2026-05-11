@@ -25,22 +25,17 @@ class FreepayApiClient
      */
     public function createPaymentSession(array $paymentData, ?string $salesChannelId = null): ?array
     {
-        $endpoint = 'gw.freepay.dk/api/payment';
+        $endpoint = 'https://gw.freepay.dk/api/payment';
 
         try {
             $response = $this->sendRequest('POST', $endpoint, $paymentData, $salesChannelId);
-
-            // $this->logger->info('Freepay payment session created', [
-            //     'order_id' => $paymentData['order_id'],
-            //     'response' => $response,
-            // ]);
-
+            
             return $response;
 
         } catch (\Exception $e) {
             $this->logger->error('Failed to create Freepay payment session', [
                 'error' => $e->getMessage(),
-                'order_id' => $paymentData['order_id'] ?? null,
+                'order_id' => $paymentData['OrderNumber'] ?? null,
             ]);
 
             return null;
@@ -50,10 +45,10 @@ class FreepayApiClient
     /**
      * Retrieves payment status from Freepay
      */
-    public function getPaymentStatus(string $freepayTransactionId, ?string $salesChannelId = null): ?array
+    public function getPayment(string $freepayTransactionId, ?string $salesChannelId = null): ?array
     {
         $apiUrl = $this->getApiUrl($salesChannelId);
-        $endpoint = $apiUrl . $freepayTransactionId;
+        $endpoint = $apiUrl . 'authorization/' . $freepayTransactionId;
 
         try {
             $response = $this->sendRequest('GET', $endpoint, [], $salesChannelId);

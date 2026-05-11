@@ -15,6 +15,7 @@ use Shopware\Core\Checkout\Payment\PaymentException;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
 use Shopware\Core\Framework\Struct\Struct;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -29,6 +30,7 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
     private EntityRepository $orderRepository;
     private EntityRepository $orderTransactionRepository;
     private EntityRepository $refundRepository;
+    private EntityRepository $pluginRepository;
     private string $shopwareVersion;
 
     public function __construct(
@@ -39,6 +41,7 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
         EntityRepository $orderRepository,
         EntityRepository $orderTransactionRepository,
         EntityRepository $refundRepository,
+        EntityRepository $pluginRepository,
         string $shopwareVersion
     ) {
         $this->transactionStateHandler = $transactionStateHandler;
@@ -48,6 +51,7 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
         $this->orderRepository = $orderRepository;
         $this->orderTransactionRepository = $orderTransactionRepository;
         $this->refundRepository = $refundRepository;
+        $this->pluginRepository = $pluginRepository;
         $this->shopwareVersion = $shopwareVersion;
     }
 
@@ -76,9 +80,7 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
             $salesChannelId = $order->getSalesChannelId();
             $currencyCode = $order->getCurrency()?->getIsoCode();
 
-            $pluginRepository = $this->container->get('plugin.repository');
-           
-            $plugin = $pluginRepository->search(
+            $plugin = $this->pluginRepository->search(
                 (new Criteria())->addFilter(new EqualsFilter('name', 'freepay-payment-shopware6')),
                 Context::createDefaultContext()
             )->first();
@@ -86,7 +88,6 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
             if ($plugin) {
                 $version = $plugin->getVersion();
             }
-
 
             // Prepare payment data
             $paymentData = [
@@ -128,26 +129,21 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
             // Create payment session with Freepay
             $paymentSession = $this->apiClient->createPaymentSession($paymentData, $salesChannelId);
 
-            if (!$paymentSession || !isset($paymentSession['payment_url'])) {
+            if (!$paymentSession || !isset($paymentSession['paymentWindowLink'])) {
                 throw PaymentException::asyncProcessInterrupted(
                     $orderTransaction->getId(),
                     'Failed to create payment session with Freepay'
                 );
             }
 
-            // Store Freepay transaction ID in custom fields for later reference
             $customFields = $orderTransaction->getCustomFields() ?? [];
-            $customFields['freepay_transaction_id'] = $paymentSession['transaction_id'] ?? null;
-            $customFields['freepay_session_created_at'] = date('Y-m-d H:i:s');
-
-            $this->logger->info('Freepay payment session created', [
-                'order_number' => $order->getOrderNumber(),
-                'transaction_id' => $orderTransaction->getId(),
-                'freepay_transaction_id' => $paymentSession['transaction_id'] ?? null,
-            ]);
+            $customFields['freepay_payment_identifier'] = $paymentSession['paymentIdentifier'] ?? null;
+            $this->orderTransactionRepository->update([
+                ['id' => $orderTransaction->getId(), 'customFields' => $customFields],
+            ], $context);
 
             // Redirect customer to Freepay payment window
-            return new RedirectResponse($paymentSession['payment_url']);
+            return new RedirectResponse($paymentSession['paymentWindowLink']);
 
         } catch (\Exception $e) {
             $this->logger->error('Freepay payment initiation failed', [
@@ -188,7 +184,7 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
             }
 
             // Get payment status from query parameters
-            $freepayTransactionId = $request->query->get('transaction_id');
+            $freepayTransactionId = $request->query->get('authorizationIdentifier');
 
             if (!$freepayTransactionId) {
                 throw PaymentException::asyncProcessInterrupted(
@@ -203,63 +199,41 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
                 'status' => $status,
             ]);
 
-            // Verify payment status with Freepay API
-            $paymentStatus = $this->apiClient->getPaymentStatus(
+            // Verify payment with Freepay API
+            $payment = $this->apiClient->getPayment(
                 $freepayTransactionId,
                 $salesChannelId
             );
 
-            if (!$paymentStatus) {
+            if (!$payment) {
                 throw PaymentException::asyncProcessInterrupted(
                     $transactionId,
-                    'Could not verify payment status with Freepay'
+                    'Could not retrieve payment from Freepay'
                 );
             }
 
-            // Handle different payment states
-            switch ($paymentStatus['status'] ?? '') {
-                case 'paid':
-                case 'completed':
-                case 'authorized':
-                    // Payment successful - transition to paid or authorized state
-                    $autoCapture = $this->systemConfigService->getBool(
-                        'FreepayPaymentShopware6.config.autoCapture',
-                        $salesChannelId
-                    );
+            $currencyCode = $order->getCurrency()?->getIsoCode();
+            $expectedAmount = $this->convertAmountToCurrencySubunits(
+                $orderTransaction->getAmount()->getTotalPrice(),
+                $currencyCode
+            );
 
-                    if ($autoCapture || $paymentStatus['status'] === 'paid') {
-                        $this->transactionStateHandler->paid($transactionId, $context);
-                        $this->logger->info('Payment paid', ['transaction_id' => $transactionId]);
-                    } else {
-                        $this->transactionStateHandler->authorize($transactionId, $context);
-                        $this->logger->info('Payment authorized', ['transaction_id' => $transactionId]);
-                    }
-                    break;
-
-                case 'pending':
-                    $this->transactionStateHandler->process($transactionId, $context);
-                    $this->logger->info('Payment pending', ['transaction_id' => $transactionId]);
-                    break;
-
-                case 'failed':
-                    $this->transactionStateHandler->fail($transactionId, $context);
-                    throw PaymentException::asyncProcessInterrupted(
-                        $transactionId,
-                        'Payment failed. Please try again or use a different payment method.'
-                    );
-
-                case 'cancelled':
-                    throw PaymentException::customerCanceled(
-                        $transactionId,
-                        'Payment was cancelled'
-                    );
-
-                default:
-                    throw PaymentException::asyncProcessInterrupted(
-                        $transactionId,
-                        sprintf('Unknown payment status: %s', $paymentStatus['status'] ?? 'unknown')
-                    );
+            if (($payment['OrderID'] ?? null) !== $order->getOrderNumber()
+                || ($payment['AuthorizationAmount'] ?? null) !== $expectedAmount) {
+                throw PaymentException::asyncProcessInterrupted(
+                    $transactionId,
+                    'Payment verification failed: order ID or amount mismatch'
+                );
             }
+
+            $customFields = $orderTransaction->getCustomFields() ?? [];
+            $customFields['freepay_authorization_identifier'] = $payment['authorizationIdentifier'] ?? null;
+            $this->orderTransactionRepository->update([
+                ['id' => $transactionId, 'customFields' => $customFields],
+            ], $context);
+
+            $this->transactionStateHandler->authorize($transactionId, $context);
+            $this->logger->info('Payment authorized', ['transaction_id' => $transactionId]);
 
         } catch (PaymentException $e) {
             $this->logger->error('Payment finalization failed', [
@@ -347,17 +321,13 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
      */
     private function prepareCustomerData($order, string $salesChannelId): array
     {
-        $sendCustomerData = $this->systemConfigService->getBool(
-            'FreepayPaymentShopware6.config.sendCustomerData',
-            $salesChannelId
-        );
-
-        if (!$sendCustomerData) {
-            return [];
-        }
-
         $customer = $order->getOrderCustomer();
         $billingAddress = $order->getBillingAddress();
+
+        $countryCode = null;
+        if ($billingAddress->getCountry()) {
+            $countryCode = $this->getNumericCountryCode($billingAddress->getCountry()->getIso());
+        }
 
         return [
             'Email' => $customer->getEmail(),
@@ -365,7 +335,7 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
             'AddressLine1' => $billingAddress->getStreet(),
             'City' => $billingAddress->getCity(),
             'PostCode' => $billingAddress->getZipcode(),
-            'Country' => $billingAddress->getCountry() ? $billingAddress->getCountry()->getIso() : null,
+            'Country' => $countryCode,
         ];
     }
 
@@ -443,6 +413,68 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
 
         $multiplier = $this->getCurrencyMultiplier($currencyCode);
         return (int) round($amount * $multiplier);
+    }
+
+    /**
+     * Convert ISO 3166-1 alpha-2 country code to numeric country code
+     */
+    private function getNumericCountryCode(string $isoCode): ?string
+    {
+        // ISO 3166-1 numeric country codes mapping
+        $countryMap = [
+            'AF' => '004', 'AX' => '248', 'AL' => '008', 'DZ' => '012', 'AS' => '016',
+            'AD' => '020', 'AO' => '024', 'AI' => '660', 'AQ' => '010', 'AG' => '028',
+            'AR' => '032', 'AM' => '051', 'AW' => '533', 'AU' => '036', 'AT' => '040',
+            'AZ' => '031', 'BS' => '044', 'BH' => '048', 'BD' => '050', 'BB' => '052',
+            'BY' => '112', 'BE' => '056', 'BZ' => '084', 'BJ' => '204', 'BM' => '060',
+            'BT' => '064', 'BO' => '068', 'BQ' => '535', 'BA' => '070', 'BW' => '072',
+            'BV' => '074', 'BR' => '076', 'IO' => '086', 'BN' => '096', 'BG' => '100',
+            'BF' => '854', 'BI' => '108', 'KH' => '116', 'CM' => '120', 'CA' => '124',
+            'CV' => '132', 'KY' => '136', 'CF' => '140', 'TD' => '148', 'CL' => '152',
+            'CN' => '156', 'CX' => '162', 'CC' => '166', 'CO' => '170', 'KM' => '174',
+            'CG' => '178', 'CD' => '180', 'CK' => '184', 'CR' => '188', 'CI' => '384',
+            'HR' => '191', 'CU' => '192', 'CW' => '531', 'CY' => '196', 'CZ' => '203',
+            'DK' => '208', 'DJ' => '262', 'DM' => '212', 'DO' => '214', 'EC' => '218',
+            'EG' => '818', 'SV' => '222', 'GQ' => '226', 'ER' => '232', 'EE' => '233',
+            'ET' => '231', 'FK' => '238', 'FO' => '234', 'FJ' => '242', 'FI' => '246',
+            'FR' => '250', 'GF' => '254', 'PF' => '258', 'TF' => '260', 'GA' => '266',
+            'GM' => '270', 'GE' => '268', 'DE' => '276', 'GH' => '288', 'GI' => '292',
+            'GR' => '300', 'GL' => '304', 'GD' => '308', 'GP' => '312', 'GU' => '316',
+            'GT' => '320', 'GG' => '831', 'GN' => '324', 'GW' => '624', 'GY' => '328',
+            'HT' => '332', 'HM' => '334', 'VA' => '336', 'HN' => '340', 'HK' => '344',
+            'HU' => '348', 'IS' => '352', 'IN' => '356', 'ID' => '360', 'IR' => '364',
+            'IQ' => '368', 'IE' => '372', 'IM' => '833', 'IL' => '376', 'IT' => '380',
+            'JM' => '388', 'JP' => '392', 'JE' => '832', 'JO' => '400', 'KZ' => '398',
+            'KE' => '404', 'KI' => '296', 'KP' => '408', 'KR' => '410', 'KW' => '414',
+            'KG' => '417', 'LA' => '418', 'LV' => '428', 'LB' => '422', 'LS' => '426',
+            'LR' => '430', 'LY' => '434', 'LI' => '438', 'LT' => '440', 'LU' => '442',
+            'MO' => '446', 'MK' => '807', 'MG' => '450', 'MW' => '454', 'MY' => '458',
+            'MV' => '462', 'ML' => '466', 'MT' => '470', 'MH' => '584', 'MQ' => '474',
+            'MR' => '478', 'MU' => '480', 'YT' => '175', 'MX' => '484', 'FM' => '583',
+            'MD' => '498', 'MC' => '492', 'MN' => '496', 'ME' => '499', 'MS' => '500',
+            'MA' => '504', 'MZ' => '508', 'MM' => '104', 'NA' => '516', 'NR' => '520',
+            'NP' => '524', 'NL' => '528', 'NC' => '540', 'NZ' => '554', 'NI' => '558',
+            'NE' => '562', 'NG' => '566', 'NU' => '570', 'NF' => '574', 'MP' => '580',
+            'NO' => '578', 'OM' => '512', 'PK' => '586', 'PW' => '585', 'PS' => '275',
+            'PA' => '591', 'PG' => '598', 'PY' => '600', 'PE' => '604', 'PH' => '608',
+            'PN' => '612', 'PL' => '616', 'PT' => '620', 'PR' => '630', 'QA' => '634',
+            'RE' => '638', 'RO' => '642', 'RU' => '643', 'RW' => '646', 'BL' => '652',
+            'SH' => '654', 'KN' => '659', 'LC' => '662', 'MF' => '663', 'PM' => '666',
+            'VC' => '670', 'WS' => '882', 'SM' => '674', 'ST' => '678', 'SA' => '682',
+            'SN' => '686', 'RS' => '688', 'SC' => '690', 'SL' => '694', 'SG' => '702',
+            'SX' => '534', 'SK' => '703', 'SI' => '705', 'SB' => '090', 'SO' => '706',
+            'ZA' => '710', 'GS' => '239', 'SS' => '728', 'ES' => '724', 'LK' => '144',
+            'SD' => '729', 'SR' => '740', 'SJ' => '744', 'SZ' => '748', 'SE' => '752',
+            'CH' => '756', 'SY' => '760', 'TW' => '158', 'TJ' => '762', 'TZ' => '834',
+            'TH' => '764', 'TL' => '626', 'TG' => '768', 'TK' => '772', 'TO' => '776',
+            'TT' => '780', 'TN' => '788', 'TR' => '792', 'TM' => '795', 'TC' => '796',
+            'TV' => '798', 'UG' => '800', 'UA' => '804', 'AE' => '784', 'GB' => '826',
+            'US' => '840', 'UM' => '581', 'UY' => '858', 'UZ' => '860', 'VU' => '548',
+            'VE' => '862', 'VN' => '704', 'VG' => '092', 'VI' => '850', 'WF' => '876',
+            'EH' => '732', 'YE' => '887', 'ZM' => '894', 'ZW' => '716',
+        ];
+
+        return $countryMap[strtoupper($isoCode)] ?? null;
     }
 
     /**
