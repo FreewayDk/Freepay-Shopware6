@@ -5,11 +5,12 @@ All notable changes to the Freepay Payment Plugin for Shopware 6.
 ## [1.1.1] - 2026-06-24
 
 ### Fixed
-- Plugin install/update no longer fails with `SQLSTATE[23000] ... 1062 Duplicate entry
-  'freepay_payment_identifier' for key 'uniq.custom_field.name'`. The custom field set is
-  now upserted with stable IDs resolved by name, so reinstalling on a database that still
-  holds the freepay custom fields (e.g. after an uninstall that kept user data) reuses the
-  existing rows instead of trying to insert duplicates.
+- Plugin install/update no longer fails with `SQLSTATE[23000] ... 1062 Duplicate entry`
+  on `uniq.custom_field.name` or `uniq.custom_field_set_relation.entity_name`. The custom
+  field set, its fields, and its `order` relation are now upserted with stable IDs resolved
+  by name, so reinstalling on a database that still holds the freepay custom fields (e.g.
+  after an uninstall that kept user data) reuses the existing rows instead of trying to
+  insert duplicates.
 
 ## [1.1.0] - 2026-06-23
 

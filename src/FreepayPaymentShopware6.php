@@ -71,6 +71,11 @@ class FreepayPaymentShopware6 extends Plugin
             ?? Uuid::fromStringToHex('freepay_payment_identifier');
         $authorizationFieldId = $this->resolveExistingId('custom_field.repository', 'freepay_authorization_identifier')
             ?? Uuid::fromStringToHex('freepay_authorization_identifier');
+        // The relation also needs a stable id: when the set already exists, an
+        // id-less relation is inserted as a new row and collides on
+        // uniq.custom_field_set_relation.entity_name (set_id + entity_name).
+        $relationId = $this->resolveExistingRelationId($setId, 'order')
+            ?? Uuid::fromStringToHex('freepay_order_transaction.order');
 
         $repository->upsert([
             [
@@ -80,7 +85,7 @@ class FreepayPaymentShopware6 extends Plugin
                     'label' => ['en-GB' => 'Freepay', 'da-DK' => 'Freepay'],
                 ],
                 'relations' => [
-                    ['entityName' => 'order'],
+                    ['id' => $relationId, 'entityName' => 'order'],
                 ],
                 'customFields' => [
                     [
@@ -114,6 +119,17 @@ class FreepayPaymentShopware6 extends Plugin
 
         $criteria = new Criteria();
         $criteria->addFilter(new EqualsFilter('name', $name));
+
+        return $repository->searchIds($criteria, Context::createDefaultContext())->firstId();
+    }
+
+    private function resolveExistingRelationId(string $customFieldSetId, string $entityName): ?string
+    {
+        $repository = $this->container->get('custom_field_set_relation.repository');
+
+        $criteria = new Criteria();
+        $criteria->addFilter(new EqualsFilter('customFieldSetId', $customFieldSetId));
+        $criteria->addFilter(new EqualsFilter('entityName', $entityName));
 
         return $repository->searchIds($criteria, Context::createDefaultContext())->firstId();
     }
