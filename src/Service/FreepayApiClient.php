@@ -76,7 +76,7 @@ class FreepayApiClient
     public function capturePayment(string $freepayTransactionId, ?int $amount = null, ?string $salesChannelId = null): ?array
     {
         $apiUrl = $this->getApiUrl($salesChannelId);
-        $endpoint = $apiUrl . $freepayTransactionId . '/capture';
+        $endpoint = $apiUrl . 'authorization/' . $freepayTransactionId . '/capture';
 
         $payload = [];
         if ($amount !== null) {
@@ -104,12 +104,39 @@ class FreepayApiClient
     }
 
     /**
+     * Cancels / voids an authorized payment
+     */
+    public function cancelPayment(string $freepayTransactionId, ?string $salesChannelId = null): ?array
+    {
+        $apiUrl = $this->getApiUrl($salesChannelId);
+        $endpoint = $apiUrl . 'authorization/' . $freepayTransactionId . '/cancel';
+
+        try {
+            $response = $this->sendRequest('POST', $endpoint, [], $salesChannelId);
+
+            $this->logger->info('Freepay payment cancelled', [
+                'freepay_transaction_id' => $freepayTransactionId,
+            ]);
+
+            return $response;
+
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to cancel Freepay payment', [
+                'error' => $e->getMessage(),
+                'freepay_transaction_id' => $freepayTransactionId,
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
      * Refunds a payment
      */
     public function refundPayment(string $freepayTransactionId, ?int $amount = null, ?string $salesChannelId = null): ?array
     {
         $apiUrl = $this->getApiUrl($salesChannelId);
-        $endpoint = $apiUrl . $freepayTransactionId . '/credit';
+        $endpoint = $apiUrl . 'authorization/' . $freepayTransactionId . '/credit';
 
         $payload = [];
         if ($amount !== null) {
@@ -175,6 +202,26 @@ class FreepayApiClient
 
             throw new \Exception('Freepay API request failed: ' . $e->getMessage());
         }
+    }
+
+    public function convertAmount(float $amount, ?string $currencyCode): int
+    {
+        if (!$currencyCode) {
+            return (int) round($amount * 100);
+        }
+
+        $zeroDecimal = ['BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF'];
+        $threeDecimal = ['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND'];
+
+        if (in_array($currencyCode, $zeroDecimal, true)) {
+            return (int) round($amount);
+        }
+
+        if (in_array($currencyCode, $threeDecimal, true)) {
+            return (int) round($amount * 1000);
+        }
+
+        return (int) round($amount * 100);
     }
 
     private function getApiUrl(?string $salesChannelId = null): string

@@ -1,0 +1,38 @@
+{
+    "freepay": {
+        "capture": {
+            "cardTitle": "Freepay capture",
+            "capturedTotal": "Captured so far",
+            "remaining": "Remaining to capture",
+            "colAmount": "Amount",
+            "colDate": "Date",
+            "noCaptures": "No captures yet for this order.",
+            "openButton": "Capture via Freepay",
+            "modalTitle": "Capture payment via Freepay",
+            "amountLabel": "Capture amount",
+            "amountHelp": "Amount to capture in the order currency. Enter a partial amount for a partial capture; capture again later for the rest.",
+            "confirm": "Capture",
+            "cancel": "Cancel",
+            "invalidAmount": "Please enter a valid capture amount.",
+            "success": "Capture processed successfully.",
+            "error": "Capture failed. Check the logs for details."
+        },
+        "refund": {
+            "cardTitle": "Freepay refund",
+            "cardHint": "Refund a captured Freepay payment. The payment must already be captured.",
+            "colAmount": "Amount",
+            "colDate": "Date",
+            "colStatus": "Status",
+            "noRefunds": "No refunds yet for this order.",
+            "openButton": "Refund via Freepay",
+            "modalTitle": "Refund payment via Freepay",
+            "amountLabel": "Refund amount",
+            "amountHelp": "Amount to refund in the order currency. Enter a partial amount for a partial refund.",
+            "confirm": "Refund",
+            "cancel": "Cancel",
+            "invalidAmount": "Please enter a valid refund amount.",
+            "success": "Refund processed successfully.",
+            "error": "Refund failed. Check the logs for details."
+        }
+    }
+}

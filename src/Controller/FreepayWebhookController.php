@@ -4,46 +4,45 @@ namespace Freepay\Shopware\Controller;
 
 use Freepay\Shopware\Service\FreepayApiClient;
 use Psr\Log\LoggerInterface;
+use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionEntity;
+use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStateHandler;
 use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStates;
+use Shopware\Core\Checkout\Order\OrderEntity;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
-use Shopware\Core\System\StateMachine\StateMachineRegistry;
-use Shopware\Core\System\StateMachine\Transition;
-use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
 
-#[Route(defaults: ['_routeScope' => ['api']])]
+#[Route(defaults: ['_routeScope' => ['storefront']])]
 class FreepayWebhookController extends AbstractController
 {
-    private FreepayApiClient $apiClient;
-    private StateMachineRegistry $stateMachineRegistry;
-    private EntityRepository $orderTransactionRepository;
-    private SystemConfigService $systemConfigService;
-    private LoggerInterface $logger;
-
     public function __construct(
-        FreepayApiClient $apiClient,
-        StateMachineRegistry $stateMachineRegistry,
-        EntityRepository $orderTransactionRepository,
-        SystemConfigService $systemConfigService,
-        LoggerInterface $logger
-    ) {
-        $this->apiClient = $apiClient;
-        $this->stateMachineRegistry = $stateMachineRegistry;
-        $this->orderTransactionRepository = $orderTransactionRepository;
-        $this->systemConfigService = $systemConfigService;
-        $this->logger = $logger;
-    }
+        private readonly FreepayApiClient $apiClient,
+        private readonly EntityRepository $orderRepository,
+        private readonly EntityRepository $orderTransactionRepository,
+        private readonly OrderTransactionStateHandler $transactionStateHandler,
+        private readonly LoggerInterface $logger
+    ) {}
 
+    /**
+     * Freepay ServerCallbackUrl. Sent as application/x-www-form-urlencoded with:
+     *   - authorizationIdentifier: guid used for capture/refund/void
+     *   - savedCardIdentifier:     guid (zero-guid unless a subscription is created) — unused
+     *   - paymentIdentifier:       guid of the payment link (stored on the order in pay())
+     *   - authorizationAccepted:   bool, whether the payment succeeded
+     *
+     * This is the server-to-server authorization result — the safety net for when the
+     * customer never returns to the shop and finalize() never runs.
+     */
     #[Route(
         path: '/freepay/webhook',
         name: 'payment.freepay.webhook',
+        defaults: ['_routeScope' => ['storefront'], 'auth_required' => false],
         methods: ['POST']
     )]
     public function webhook(Request $request): JsonResponse
@@ -51,176 +50,177 @@ class FreepayWebhookController extends AbstractController
         $context = Context::createDefaultContext();
 
         try {
-            $payload = json_decode($request->getContent(), true);
+            $authorizationIdentifier = $this->param($request, 'authorizationIdentifier');
+            $paymentIdentifier = $this->param($request, 'paymentIdentifier');
+            $accepted = filter_var(
+                $this->param($request, 'authorizationAccepted'),
+                FILTER_VALIDATE_BOOLEAN
+            );
 
-            if (!$payload) {
-                $this->logger->error('Invalid webhook payload - not valid JSON' );
-                return new JsonResponse(['error' => 'Invalid payload'], Response::HTTP_BAD_REQUEST);
-            }
+            $this->logger->info('Freepay webhook received', [
+                'authorizationIdentifier' => $authorizationIdentifier,
+                'paymentIdentifier' => $paymentIdentifier,
+                'authorizationAccepted' => $accepted,
+            ]);
 
-            $freepayTransactionId = $payload['transaction_id'] ?? null;
-            $paymentStatus = $payload['status'] ?? null;
-
-            if (!$freepayTransactionId || !$paymentStatus) {
-                $this->logger->error('Missing required webhook data');
+            if (!$paymentIdentifier && !$authorizationIdentifier) {
+                $this->logger->error('Freepay webhook: missing identifiers');
                 return new JsonResponse(['error' => 'Missing required data'], Response::HTTP_BAD_REQUEST);
             }
 
-            $this->logger->info('Freepay webhook received', [
-                'freepay_transaction_id' => $freepayTransactionId,
-                'status' => $paymentStatus,
-            ]);
+            $order = $this->findOrder($paymentIdentifier, $authorizationIdentifier, $context);
+            if (!$order instanceof OrderEntity) {
+                $this->logger->warning('Freepay webhook: order not found', [
+                    'paymentIdentifier' => $paymentIdentifier,
+                    'authorizationIdentifier' => $authorizationIdentifier,
+                ]);
+                // Ack with 200 so Freepay does not retry a callback we can never match.
+                return new JsonResponse(['status' => 'order_not_found'], Response::HTTP_OK);
+            }
 
-            $orderTransaction = $this->findOrderTransaction($freepayTransactionId, $context);
-
-            if (!$orderTransaction) {
-                $this->logger->warning('Order transaction not found for webhook');
+            $transaction = $order->getTransactions()?->last();
+            if (!$transaction instanceof OrderTransactionEntity) {
                 return new JsonResponse(['status' => 'transaction_not_found'], Response::HTTP_OK);
             }
 
-            $transactionId = $orderTransaction['id'];
-
-            if ($this->wasWebhookProcessed($orderTransaction, $freepayTransactionId, $paymentStatus)) {
+            $dedupeStatus = $accepted ? 'accepted' : 'declined';
+            if ($this->wasWebhookProcessed($transaction, $authorizationIdentifier, $dedupeStatus)) {
                 return new JsonResponse(['status' => 'already_processed'], Response::HTTP_OK);
             }
 
-            $this->processPaymentStatus($transactionId, $paymentStatus, $payload, $context);
-            $this->markWebhookProcessed($transactionId, $freepayTransactionId, $paymentStatus, $context);
+            if ($accepted) {
+                // Verify against the Freepay API (authenticated, server-to-server) before
+                // authorizing, rather than trusting the callback body.
+                $payment = $authorizationIdentifier
+                    ? $this->apiClient->getPayment($authorizationIdentifier, $order->getSalesChannelId())
+                    : null;
+
+                $verified = $payment !== null
+                    && ($payment['OrderID'] ?? null) === $order->getOrderNumber();
+
+                if (!$verified) {
+                    $this->logger->warning('Freepay webhook: could not verify authorization, skipping', [
+                        'order_number' => $order->getOrderNumber(),
+                        'authorizationIdentifier' => $authorizationIdentifier,
+                    ]);
+                    return new JsonResponse(['status' => 'unverified'], Response::HTTP_OK);
+                }
+
+                // Persist the authorization id so capture / cancel / refund work even when
+                // the customer never returned and finalize() never stored it.
+                $this->orderRepository->update([
+                    [
+                        'id' => $order->getId(),
+                        'customFields' => ['freepay_authorization_identifier' => $authorizationIdentifier],
+                    ],
+                ], $context);
+
+                $this->authorize($transaction, $context);
+            } else {
+                $this->fail($transaction, $context);
+            }
+
+            $this->markWebhookProcessed($transaction->getId(), $authorizationIdentifier, $dedupeStatus, $context);
 
             return new JsonResponse(['status' => 'success'], Response::HTTP_OK);
 
-        } catch (\Exception $e) {
-            $this->logger->error('Webhook processing failed', ['error' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            $this->logger->error('Freepay webhook: processing failed', ['error' => $e->getMessage()]);
             return new JsonResponse(['error' => 'Internal server error'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 
-    private function findOrderTransaction(string $freepayTransactionId, Context $context): ?array
+    private function param(Request $request, string $key): ?string
     {
-        $criteria = new Criteria();
-        $criteria->addFilter(
-            new EqualsFilter('customFields.freepay_transaction_id', $freepayTransactionId)
-        );
+        $value = $request->request->get($key) ?? $request->query->get($key);
 
-        $result = $this->orderTransactionRepository->search($criteria, $context);
-        return $result->getTotal() === 0 ? null : $result->first();
+        return $value === null || $value === '' ? null : (string) $value;
     }
 
-    private function wasWebhookProcessed(array $orderTransaction, string $freepayTransactionId, string $status): bool
+    private function findOrder(?string $paymentIdentifier, ?string $authorizationIdentifier, Context $context): ?OrderEntity
     {
-        $customFields = $orderTransaction['customFields'] ?? [];
-        $lastWebhookStatus = $customFields['freepay_last_webhook_status'] ?? null;
-        $lastWebhookId = $customFields['freepay_last_webhook_id'] ?? null;
+        $candidates = [];
+        if ($paymentIdentifier) {
+            $candidates['freepay_payment_identifier'] = $paymentIdentifier;
+        }
+        if ($authorizationIdentifier) {
+            $candidates['freepay_authorization_identifier'] = $authorizationIdentifier;
+        }
 
-        return $lastWebhookId === $freepayTransactionId && $lastWebhookStatus === $status;
+        foreach ($candidates as $field => $value) {
+            $criteria = new Criteria();
+            $criteria->addFilter(new EqualsFilter('customFields.' . $field, $value));
+            $criteria->addAssociation('transactions.stateMachineState');
+            $criteria->addAssociation('currency');
+
+            $order = $this->orderRepository->search($criteria, $context)->first();
+            if ($order instanceof OrderEntity) {
+                return $order;
+            }
+        }
+
+        return null;
     }
 
-    private function markWebhookProcessed(string $transactionId, string $freepayTransactionId, string $status, Context $context): void
+    private function authorize(OrderTransactionEntity $transaction, Context $context): void
+    {
+        $current = $transaction->getStateMachineState()?->getTechnicalName();
+
+        // Don't downgrade an already authorized/paid transaction.
+        if (in_array($current, [OrderTransactionStates::STATE_AUTHORIZED, OrderTransactionStates::STATE_PAID], true)) {
+            return;
+        }
+
+        try {
+            $this->transactionStateHandler->authorize($transaction->getId(), $context);
+            $this->logger->info('Freepay webhook: transaction authorized', ['transaction_id' => $transaction->getId()]);
+        } catch (\Throwable $e) {
+            $this->logger->info('Freepay webhook: authorize transition skipped', [
+                'transaction_id' => $transaction->getId(),
+                'from' => $current,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function fail(OrderTransactionEntity $transaction, Context $context): void
+    {
+        $current = $transaction->getStateMachineState()?->getTechnicalName();
+
+        if ($current === OrderTransactionStates::STATE_FAILED) {
+            return;
+        }
+
+        try {
+            $this->transactionStateHandler->fail($transaction->getId(), $context);
+            $this->logger->info('Freepay webhook: transaction failed (declined)', ['transaction_id' => $transaction->getId()]);
+        } catch (\Throwable $e) {
+            $this->logger->info('Freepay webhook: fail transition skipped', [
+                'transaction_id' => $transaction->getId(),
+                'from' => $current,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function wasWebhookProcessed(OrderTransactionEntity $transaction, ?string $authorizationIdentifier, string $status): bool
+    {
+        $customFields = $transaction->getCustomFields() ?? [];
+
+        return ($customFields['freepay_last_webhook_id'] ?? null) === $authorizationIdentifier
+            && ($customFields['freepay_last_webhook_status'] ?? null) === $status;
+    }
+
+    private function markWebhookProcessed(string $transactionId, ?string $authorizationIdentifier, string $status, Context $context): void
     {
         $this->orderTransactionRepository->update([
             [
                 'id' => $transactionId,
                 'customFields' => [
-                    'freepay_last_webhook_id' => $freepayTransactionId,
+                    'freepay_last_webhook_id' => $authorizationIdentifier,
                     'freepay_last_webhook_status' => $status,
-                    'freepay_last_webhook_at' => date('Y-m-d H:i:s'),
                 ],
             ],
         ], $context);
-    }
-
-    private function processPaymentStatus(string $transactionId, string $status, array $payload, Context $context): void
-    {
-        try {
-            switch ($status) {
-                case 'paid':
-                case 'completed':
-                case 'captured':
-                    $this->stateMachineRegistry->transition(
-                        new Transition(
-                            OrderTransactionStates::STATE_MACHINE,
-                            $transactionId,
-                            OrderTransactionStates::STATE_PAID,
-                            'stateId'
-                        ),
-                        $context
-                    );
-                    break;
-                case 'authorized':
-                    $this->stateMachineRegistry->transition(
-                        new Transition(
-                            OrderTransactionStates::STATE_MACHINE,
-                            $transactionId,
-                            OrderTransactionStates::STATE_AUTHORIZED,
-                            'stateId'
-                        ),
-                        $context
-                    );
-                    break;
-                case 'pending':
-                case 'processing':
-                    $this->stateMachineRegistry->transition(
-                        new Transition(
-                            OrderTransactionStates::STATE_MACHINE,
-                            $transactionId,
-                            OrderTransactionStates::STATE_IN_PROGRESS,
-                            'stateId'
-                        ),
-                        $context
-                    );
-                    break;
-                case 'failed':
-                case 'declined':
-                    $this->stateMachineRegistry->transition(
-                        new Transition(
-                            OrderTransactionStates::STATE_MACHINE,
-                            $transactionId,
-                            OrderTransactionStates::STATE_FAILED,
-                            'stateId'
-                        ),
-                        $context
-                    );
-                    break;
-                case 'cancelled':
-                case 'canceled':
-                    $this->stateMachineRegistry->transition(
-                        new Transition(
-                            OrderTransactionStates::STATE_MACHINE,
-                            $transactionId,
-                            OrderTransactionStates::STATE_CANCELLED,
-                            'stateId'
-                        ),
-                        $context
-                    );
-                    break;
-                case 'refunded':
-                    $this->stateMachineRegistry->transition(
-                        new Transition(
-                            OrderTransactionStates::STATE_MACHINE,
-                            $transactionId,
-                            OrderTransactionStates::STATE_REFUNDED,
-                            'stateId'
-                        ),
-                        $context
-                    );
-                    break;
-                case 'partially_refunded':
-                    $this->stateMachineRegistry->transition(
-                        new Transition(
-                            OrderTransactionStates::STATE_MACHINE,
-                            $transactionId,
-                            OrderTransactionStates::STATE_PARTIALLY_REFUNDED,
-                            'stateId'
-                        ),
-                        $context
-                    );
-                    break;
-                default:
-                    $this->logger->warning('Unknown payment status from webhook', ['status' => $status]);
-            }
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to update transaction state from webhook', ['error' => $e->getMessage()]);
-            throw $e;
-        }
     }
 }

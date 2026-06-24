@@ -12,6 +12,7 @@ use Shopware\Core\Framework\Plugin\Context\ActivateContext;
 use Shopware\Core\Framework\Plugin\Context\DeactivateContext;
 use Shopware\Core\Framework\Plugin\Context\InstallContext;
 use Shopware\Core\Framework\Plugin\Context\UninstallContext;
+use Shopware\Core\Framework\Plugin\Context\UpdateContext;
 use Shopware\Core\Framework\Plugin\Util\PluginIdProvider;
 use Shopware\Core\System\CustomField\CustomFieldTypes;
 
@@ -32,6 +33,12 @@ class FreepayPaymentShopware6 extends Plugin
         if (!$uninstallContext->keepUserData()) {
             $this->removeCustomFieldSet($uninstallContext->getContext());
         }
+    }
+
+    public function update(UpdateContext $updateContext): void
+    {
+        $this->registerCustomFieldSet($updateContext->getContext());
+        parent::update($updateContext);
     }
 
     public function activate(ActivateContext $activateContext): void
@@ -57,7 +64,7 @@ class FreepayPaymentShopware6 extends Plugin
                     'label' => ['en-GB' => 'Freepay', 'da-DK' => 'Freepay'],
                 ],
                 'relations' => [
-                    ['entityName' => 'order_transaction'],
+                    ['entityName' => 'order'],
                 ],
                 'customFields' => [
                     [

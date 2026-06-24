@@ -95,7 +95,7 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
                 'CustomerAcceptUrl' => $transaction->getReturnUrl(),
                 'CustomerDeclineUrl' => $transaction->getReturnUrl(),
                 'ServerCallbackUrl' => $_ENV['APP_URL'] . '/freepay/webhook',
-                'Amount' => $this->convertAmountToCurrencySubunits($orderTransaction->getAmount()->getTotalPrice(), $currencyCode),
+                'Amount' => $this->apiClient->convertAmount($orderTransaction->getAmount()->getTotalPrice(), $currencyCode),
                 'SaveCard' => false,
                 'Client' => array(
                     'CMS'				=> array(
@@ -136,10 +136,8 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
                 );
             }
 
-            $customFields = $orderTransaction->getCustomFields() ?? [];
-            $customFields['freepay_payment_identifier'] = $paymentSession['paymentIdentifier'] ?? null;
-            $this->orderTransactionRepository->update([
-                ['id' => $orderTransaction->getId(), 'customFields' => $customFields],
+            $this->orderRepository->update([
+                ['id' => $order->getId(), 'customFields' => ['freepay_payment_identifier' => $paymentSession['paymentIdentifier'] ?? null]],
             ], $context);
 
             // Redirect customer to Freepay payment window
@@ -213,7 +211,7 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
             }
 
             $currencyCode = $order->getCurrency()?->getIsoCode();
-            $expectedAmount = $this->convertAmountToCurrencySubunits(
+            $expectedAmount = $this->apiClient->convertAmount(
                 $orderTransaction->getAmount()->getTotalPrice(),
                 $currencyCode
             );
@@ -226,10 +224,8 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
                 );
             }
 
-            $customFields = $orderTransaction->getCustomFields() ?? [];
-            $customFields['freepay_authorization_identifier'] = $payment['authorizationIdentifier'] ?? null;
-            $this->orderTransactionRepository->update([
-                ['id' => $transactionId, 'customFields' => $customFields],
+            $this->orderRepository->update([
+                ['id' => $order->getId(), 'customFields' => ['freepay_authorization_identifier' => $payment['AuthorizationIdentifier'] ?? null]],
             ], $context);
 
             $this->transactionStateHandler->authorize($transactionId, $context);
@@ -270,25 +266,23 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
             $order = $this->loadOrder($orderTransaction->getOrderId(), $context);
             
             $currencyCode = $order->getCurrency()?->getIsoCode();
-            $refundAmountInMinorUnits = $this->convertAmountToCurrencySubunits(
+            $refundAmountInMinorUnits = $this->apiClient->convertAmount(
                 $refund->getAmount()->getTotalPrice(),
                 $currencyCode
             );
 
-            // Get the Freepay transaction ID from custom fields
-            $customFields = $orderTransaction->getCustomFields() ?? [];
-            $freepayTransactionId = $customFields['freepay_transaction_id'] ?? null;
+            $authorizationId = $order->getCustomFields()['freepay_authorization_identifier'] ?? null;
 
-            if (!$freepayTransactionId) {
+            if (!$authorizationId) {
                 throw PaymentException::asyncProcessInterrupted(
                     $orderTransaction->getId(),
-                    'Freepay transaction ID not found in order transaction'
+                    'Freepay authorization identifier not found on order'
                 );
             }
 
             // Process refund via Freepay API
             $result = $this->apiClient->refundPayment(
-                $freepayTransactionId,
+                $authorizationId,
                 $refundAmountInMinorUnits,
                 $order->getSalesChannelId()
             );
@@ -402,20 +396,6 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
     }
 
     /**
-     * Convert amount to currency subunits (e.g., cents for USD, no conversion for JPY)
-     * Handles currencies with different decimal places
-     */
-    private function convertAmountToCurrencySubunits(float $amount, ?string $currencyCode): int
-    {
-        if (!$currencyCode) {
-            return (int) round($amount * 100); // Default to 2 decimals
-        }
-
-        $multiplier = $this->getCurrencyMultiplier($currencyCode);
-        return (int) round($amount * $multiplier);
-    }
-
-    /**
      * Convert ISO 3166-1 alpha-2 country code to numeric country code
      */
     private function getNumericCountryCode(string $isoCode): ?string
@@ -477,52 +457,4 @@ class FreepayPaymentHandler extends AbstractPaymentHandler
         return $countryMap[strtoupper($isoCode)] ?? null;
     }
 
-    /**
-     * Get the multiplier for converting currency amount to its smallest unit
-     * Based on ISO 4217 currency decimal places
-     */
-    private function getCurrencyMultiplier(string $currencyCode): int
-    {
-        // Currencies with 0 decimal places (no cents/subunits)
-        $zeroDecimalCurrencies = [
-            'BIF', // Burundian Franc
-            'CLP', // Chilean Peso
-            'DJF', // Djiboutian Franc
-            'GNF', // Guinean Franc
-            'ISK', // Icelandic Króna
-            'JPY', // Japanese Yen
-            'KMF', // Comorian Franc
-            'KRW', // South Korean Won
-            'PYG', // Paraguayan Guaraní
-            'RWF', // Rwandan Franc
-            'UGX', // Ugandan Shilling
-            'VND', // Vietnamese Đồng
-            'VUV', // Vanuatu Vatu
-            'XAF', // Central African CFA Franc
-            'XOF', // West African CFA Franc
-            'XPF', // CFP Franc
-        ];
-
-        // Currencies with 3 decimal places
-        $threeDecimalCurrencies = [
-            'BHD', // Bahraini Dinar
-            'IQD', // Iraqi Dinar
-            'JOD', // Jordanian Dinar
-            'KWD', // Kuwaiti Dinar
-            'LYD', // Libyan Dinar
-            'OMR', // Omani Rial
-            'TND', // Tunisian Dinar
-        ];
-
-        if (in_array($currencyCode, $zeroDecimalCurrencies, true)) {
-            return 1; // No multiplication needed
-        }
-
-        if (in_array($currencyCode, $threeDecimalCurrencies, true)) {
-            return 1000; // Multiply by 1000 for 3 decimal places
-        }
-
-        // Default: 2 decimal places (most common)
-        return 100;
-    }
 }

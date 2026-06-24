@@ -22,11 +22,51 @@
             <tag name="shopware.payment.method"/>
         </service>
 
+        <service id="Freepay\Shopware\Subscriber\OrderStateSubscriber">
+            <argument type="service" id="Freepay\Shopware\Service\FreepayApiClient"/>
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <argument type="service" id="Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStateHandler"/>
+            <argument type="service" id="order.repository"/>
+            <argument type="service" id="order_transaction.repository"/>
+            <argument type="service" id="order_delivery.repository"/>
+            <argument type="service" id="order_transaction_capture.repository"/>
+            <argument type="service" id="Shopware\Core\System\StateMachine\StateMachineRegistry"/>
+            <argument type="service" id="logger"/>
+            <tag name="kernel.event_subscriber"/>
+        </service>
+
         <service id="Freepay\Shopware\Controller\FreepayWebhookController" public="true">
             <argument type="service" id="Freepay\Shopware\Service\FreepayApiClient"/>
-            <argument type="service" id="Shopware\Core\System\StateMachine\StateMachineRegistry"/>
+            <argument type="service" id="order.repository"/>
             <argument type="service" id="order_transaction.repository"/>
-            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <argument type="service" id="Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStateHandler"/>
+            <argument type="service" id="logger"/>
+            <call method="setContainer">
+                <argument type="service" id="service_container"/>
+            </call>
+        </service>
+
+        <service id="Freepay\Shopware\Controller\FreepayRefundController" public="true">
+            <argument type="service" id="order.repository"/>
+            <argument type="service" id="order_transaction_capture.repository"/>
+            <argument type="service" id="order_transaction_capture_refund.repository"/>
+            <argument type="service" id="Shopware\Core\Checkout\Payment\Cart\PaymentRefundProcessor"/>
+            <argument type="service" id="Shopware\Core\System\StateMachine\StateMachineRegistry"/>
+            <argument type="service" id="Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStateHandler"/>
+            <argument type="service" id="Doctrine\DBAL\Connection"/>
+            <argument type="service" id="logger"/>
+            <call method="setContainer">
+                <argument type="service" id="service_container"/>
+            </call>
+        </service>
+
+        <service id="Freepay\Shopware\Controller\FreepayCaptureController" public="true">
+            <argument type="service" id="order.repository"/>
+            <argument type="service" id="order_transaction_capture.repository"/>
+            <argument type="service" id="Freepay\Shopware\Service\FreepayApiClient"/>
+            <argument type="service" id="Shopware\Core\System\StateMachine\StateMachineRegistry"/>
+            <argument type="service" id="Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStateHandler"/>
+            <argument type="service" id="Doctrine\DBAL\Connection"/>
             <argument type="service" id="logger"/>
             <call method="setContainer">
                 <argument type="service" id="service_container"/>

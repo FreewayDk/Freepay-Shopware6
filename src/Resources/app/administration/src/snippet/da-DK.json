@@ -1,0 +1,38 @@
+{
+    "freepay": {
+        "capture": {
+            "cardTitle": "Freepay hævning",
+            "capturedTotal": "Hævet indtil nu",
+            "remaining": "Resterende at hæve",
+            "colAmount": "Beløb",
+            "colDate": "Dato",
+            "noCaptures": "Ingen hævninger endnu for denne ordre.",
+            "openButton": "Hæv via Freepay",
+            "modalTitle": "Hæv betaling via Freepay",
+            "amountLabel": "Hævningsbeløb",
+            "amountHelp": "Beløb der skal hæves i ordrens valuta. Angiv et delbeløb for en delvis hævning; hæv resten senere.",
+            "confirm": "Hæv",
+            "cancel": "Annuller",
+            "invalidAmount": "Indtast et gyldigt hævningsbeløb.",
+            "success": "Hævning gennemført.",
+            "error": "Hævning mislykkedes. Tjek loggen for detaljer."
+        },
+        "refund": {
+            "cardTitle": "Freepay tilbagebetaling",
+            "cardHint": "Tilbagebetal en hævet Freepay-betaling. Betalingen skal allerede være hævet.",
+            "colAmount": "Beløb",
+            "colDate": "Dato",
+            "colStatus": "Status",
+            "noRefunds": "Ingen tilbagebetalinger endnu for denne ordre.",
+            "openButton": "Tilbagebetal via Freepay",
+            "modalTitle": "Tilbagebetal betaling via Freepay",
+            "amountLabel": "Tilbagebetalingsbeløb",
+            "amountHelp": "Beløb der skal tilbagebetales i ordrens valuta. Angiv et delbeløb for en delvis tilbagebetaling.",
+            "confirm": "Tilbagebetal",
+            "cancel": "Annuller",
+            "invalidAmount": "Indtast et gyldigt tilbagebetalingsbeløb.",
+            "success": "Tilbagebetaling gennemført.",
+            "error": "Tilbagebetaling mislykkedes. Tjek loggen for detaljer."
+        }
+    }
+}

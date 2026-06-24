@@ -18,6 +18,7 @@ See [INSTALL.md](INSTALL.md) for quick start guide.
 composer require freepay/shopware6
 bin/console plugin:refresh
 bin/console plugin:install --activate FreepayPaymentShopware6
+bin/console asset:install
 bin/console cache:clear
 ```
 
@@ -30,6 +31,7 @@ bin/console cache:clear
 ```bash
 bin/console plugin:refresh
 bin/console plugin:install --activate FreepayPaymentShopware6
+bin/console asset:install
 bin/console cache:clear
 ```
 
@@ -37,11 +39,12 @@ bin/console cache:clear
 
 Navigate to: **Settings → System → Plugins → Freepay Payment → Configuration**
 
-### Required Settings
-- Merchant ID
-- API Key
-- Webhook Secret
-- Sandbox Mode (enable for testing)
+### Basic Configuration
+- **Communication key** (required) — your Freepay API key, used to authenticate all API requests
+- **Sandbox Mode** (default: on) — enable for test transactions
+
+### Payment Settings
+- **Capture on shipment** (default: off) — automatically send a capture request to Freepay whenever a shipment is created
 
 ### Webhook URL
 Configure this URL in your Freepay merchant dashboard:

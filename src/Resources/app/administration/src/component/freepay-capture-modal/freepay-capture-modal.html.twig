@@ -1,0 +1,39 @@
+{% block freepay_capture_modal %}
+    <sw-modal
+        class="freepay-capture-modal"
+        :title="$tc('freepay.capture.modalTitle')"
+        @modal-close="onCloseModal">
+
+        {% block freepay_capture_modal_amount %}
+            <sw-number-field
+                v-model:value="amount"
+                class="freepay-capture-modal__amount"
+                :label="$tc('freepay.capture.amountLabel')"
+                :help-text="$tc('freepay.capture.amountHelp')"
+                :min="0"
+                number-type="float">
+            </sw-number-field>
+        {% endblock %}
+
+        {% block freepay_capture_modal_footer %}
+            <template #modal-footer>
+                <sw-button
+                    class="freepay-capture-modal__cancel"
+                    size="small"
+                    @click="onCloseModal">
+                    {{ $tc('freepay.capture.cancel') }}
+                </sw-button>
+
+                <sw-button
+                    class="freepay-capture-modal__confirm"
+                    variant="primary"
+                    size="small"
+                    :isLoading="isLoading"
+                    :disabled="isLoading || !amount"
+                    @click="onConfirmCapture">
+                    {{ $tc('freepay.capture.confirm') }}
+                </sw-button>
+            </template>
+        {% endblock %}
+    </sw-modal>
+{% endblock %}

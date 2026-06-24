@@ -1,0 +1,120 @@
+{% block sw_order_detail_details %}
+    {% parent %}
+
+    {% block sw_order_detail_details_freepay_capture %}
+        <sw-card
+            class="freepay-capture-card"
+            position-identifier="freepay-capture"
+            :title="$tc('freepay.capture.cardTitle')"
+            :isLoading="freepayCapturesLoading">
+
+            {% block sw_order_detail_details_freepay_capture_summary %}
+                <div class="freepay-capture-card__summary">
+                    <p>
+                        {{ $tc('freepay.capture.capturedTotal') }}:
+                        <strong>{{ freepayFormatSummaryAmount(freepayCaptureSummary.capturedTotal) }}</strong>
+                    </p>
+                    <p>
+                        {{ $tc('freepay.capture.remaining') }}:
+                        <strong>{{ freepayFormatSummaryAmount(freepayCaptureSummary.remaining) }}</strong>
+                    </p>
+                </div>
+            {% endblock %}
+
+            {% block sw_order_detail_details_freepay_capture_list %}
+                <sw-data-grid
+                    v-if="freepayCaptures.length"
+                    class="freepay-capture-card__grid"
+                    :dataSource="freepayCaptures"
+                    :columns="freepayCaptureColumns"
+                    :showSelection="false"
+                    :showActions="false"
+                    :allowInlineEdit="false">
+
+                    <template #column-amount="{ item }">
+                        {{ freepayFormatCaptureAmount(item) }}
+                    </template>
+
+                    <template #column-createdAt="{ item }">
+                        {{ freepayFormatDate(item.createdAt) }}
+                    </template>
+                </sw-data-grid>
+
+                <p v-else class="freepay-capture-card__empty">
+                    {{ $tc('freepay.capture.noCaptures') }}
+                </p>
+            {% endblock %}
+
+            {% block sw_order_detail_details_freepay_capture_actions %}
+                <div class="freepay-capture-card__actions">
+                    <sw-button
+                        class="freepay-capture-card__open"
+                        variant="primary"
+                        :disabled="!freepayCanCapture"
+                        @click="freepayOpenCaptureModal">
+                        {{ $tc('freepay.capture.openButton') }}
+                    </sw-button>
+                </div>
+            {% endblock %}
+        </sw-card>
+
+        <freepay-capture-modal
+            v-if="freepayShowCaptureModal"
+            :order-id="freepayOrderId"
+            :remaining="freepayRemaining"
+            @modal-close="freepayCloseCaptureModal"
+            @capture-success="freepayOnCaptureSuccess">
+        </freepay-capture-modal>
+    {% endblock %}
+
+    {% block sw_order_detail_details_freepay_refund %}
+        <sw-card
+            class="freepay-refund-card"
+            position-identifier="freepay-refund"
+            :title="$tc('freepay.refund.cardTitle')"
+            :isLoading="freepayRefundsLoading">
+
+            {% block sw_order_detail_details_freepay_refund_list %}
+                <sw-data-grid
+                    v-if="freepayRefunds.length"
+                    class="freepay-refund-card__grid"
+                    :dataSource="freepayRefunds"
+                    :columns="freepayRefundColumns"
+                    :showSelection="false"
+                    :showActions="false"
+                    :allowInlineEdit="false">
+
+                    <template #column-amount="{ item }">
+                        {{ freepayFormatAmount(item) }}
+                    </template>
+
+                    <template #column-createdAt="{ item }">
+                        {{ freepayFormatDate(item.createdAt) }}
+                    </template>
+                </sw-data-grid>
+
+                <p v-else class="freepay-refund-card__empty">
+                    {{ $tc('freepay.refund.noRefunds') }}
+                </p>
+            {% endblock %}
+
+            {% block sw_order_detail_details_freepay_refund_actions %}
+                <div class="freepay-refund-card__actions">
+                    <sw-button
+                        class="freepay-refund-card__open"
+                        variant="primary"
+                        @click="freepayOpenRefundModal">
+                        {{ $tc('freepay.refund.openButton') }}
+                    </sw-button>
+                </div>
+            {% endblock %}
+        </sw-card>
+
+        <freepay-refund-modal
+            v-if="freepayShowRefundModal"
+            :order-id="freepayOrderId"
+            @modal-close="freepayCloseRefundModal"
+            @refund-success="freepayOnRefundSuccess">
+        </freepay-refund-modal>
+    {% endblock %}
+{% endblock %}
