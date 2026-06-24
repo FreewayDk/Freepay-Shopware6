@@ -2,7 +2,7 @@
 
 All notable changes to the Freepay Payment Plugin for Shopware 6.
 
-## [1.1.1] - 2026-06-24
+## [1.1.2] - 2026-06-24
 
 ### Fixed
 - Plugin install/update no longer fails with `SQLSTATE[23000] ... 1062 Duplicate entry`
