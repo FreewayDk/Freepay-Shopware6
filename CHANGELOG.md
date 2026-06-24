@@ -2,6 +2,15 @@
 
 All notable changes to the Freepay Payment Plugin for Shopware 6.
 
+## [1.1.3] - 2026-06-24
+
+### Fixed
+- The "Freepay capture" and "Freepay refund" admin cards no longer fail to appear after a
+  composer install. The plugin now ships the **compiled** administration bundle under
+  `src/Resources/public/administration/`, so the cards load without the customer having to
+  run `bin/console administration:build`. Previously only the admin *source* was shipped,
+  which Shopware does not compile on install.
+
 ## [1.1.2] - 2026-06-24
 
 ### Fixed

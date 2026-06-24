@@ -1,0 +1,25 @@
+{
+  "base": "/bundles/freepaypaymentshopware6/administration/",
+  "entryPoints": {
+    "freepay-payment-shopware6": {
+      "css": [
+        "/bundles/freepaypaymentshopware6/administration/assets/freepay-payment-shopware6-BxpVx0TB.css"
+      ],
+      "dynamic": [],
+      "js": [
+        "/bundles/freepaypaymentshopware6/administration/assets/freepay-payment-shopware6-BzI3mbsS.js"
+      ],
+      "legacy": false,
+      "preload": []
+    }
+  },
+  "legacy": false,
+  "metadatas": {},
+  "version": [
+    "7.1.0",
+    7,
+    1,
+    0
+  ],
+  "viteServer": null
+}

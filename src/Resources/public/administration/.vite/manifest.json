@@ -1,0 +1,11 @@
+{
+  "main.js": {
+    "file": "assets/freepay-payment-shopware6-BzI3mbsS.js",
+    "name": "freepay-payment-shopware6",
+    "src": "main.js",
+    "isEntry": true,
+    "css": [
+      "assets/freepay-payment-shopware6-BxpVx0TB.css"
+    ]
+  }
+}
