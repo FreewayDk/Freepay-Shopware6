@@ -14,6 +14,7 @@ use Shopware\Core\Framework\Plugin\Context\InstallContext;
 use Shopware\Core\Framework\Plugin\Context\UninstallContext;
 use Shopware\Core\Framework\Plugin\Context\UpdateContext;
 use Shopware\Core\Framework\Plugin\Util\PluginIdProvider;
+use Shopware\Core\Framework\Uuid\Uuid;
 use Shopware\Core\System\CustomField\CustomFieldTypes;
 
 class FreepayPaymentShopware6 extends Plugin
@@ -57,8 +58,23 @@ class FreepayPaymentShopware6 extends Plugin
     {
         $repository = $this->container->get('custom_field_set.repository');
 
+        // Resolve IDs by name so upsert() always targets the same primary keys and
+        // becomes idempotent across install/update/reinstall. Without explicit IDs
+        // the DAL generates fresh UUIDs and treats the upsert as an insert, which
+        // collides with leftover rows on uniq.custom_field.name (1062 Duplicate
+        // entry) whenever the custom fields survived a previous uninstall
+        // (keepUserData). Reusing any existing row id by name also self-heals a DB
+        // that already has orphaned freepay_* custom fields with random UUIDs.
+        $setId = $this->resolveExistingId('custom_field_set.repository', 'freepay_order_transaction')
+            ?? Uuid::fromStringToHex('freepay_order_transaction');
+        $paymentFieldId = $this->resolveExistingId('custom_field.repository', 'freepay_payment_identifier')
+            ?? Uuid::fromStringToHex('freepay_payment_identifier');
+        $authorizationFieldId = $this->resolveExistingId('custom_field.repository', 'freepay_authorization_identifier')
+            ?? Uuid::fromStringToHex('freepay_authorization_identifier');
+
         $repository->upsert([
             [
+                'id' => $setId,
                 'name' => 'freepay_order_transaction',
                 'config' => [
                     'label' => ['en-GB' => 'Freepay', 'da-DK' => 'Freepay'],
@@ -68,6 +84,7 @@ class FreepayPaymentShopware6 extends Plugin
                 ],
                 'customFields' => [
                     [
+                        'id' => $paymentFieldId,
                         'name' => 'freepay_payment_identifier',
                         'type' => CustomFieldTypes::TEXT,
                         'config' => [
@@ -77,6 +94,7 @@ class FreepayPaymentShopware6 extends Plugin
                         ],
                     ],
                     [
+                        'id' => $authorizationFieldId,
                         'name' => 'freepay_authorization_identifier',
                         'type' => CustomFieldTypes::TEXT,
                         'config' => [
@@ -88,6 +106,16 @@ class FreepayPaymentShopware6 extends Plugin
                 ],
             ],
         ], $context);
+    }
+
+    private function resolveExistingId(string $repositoryName, string $name): ?string
+    {
+        $repository = $this->container->get($repositoryName);
+
+        $criteria = new Criteria();
+        $criteria->addFilter(new EqualsFilter('name', $name));
+
+        return $repository->searchIds($criteria, Context::createDefaultContext())->firstId();
     }
 
     private function removeCustomFieldSet(Context $context): void
