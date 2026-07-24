@@ -15,21 +15,12 @@ bin/console cache:clear
 
 1. **Shopware Admin → Settings → Plugins → Freepay Payment → Configuration**
    - Enable "Sandbox Mode" for testing
-   - Enter Merchant ID, API Key, Webhook Secret
+   - Enter API Key
 
 2. **Activate Payment Method**
    - Go to Settings → Payment Methods
    - Find "Freepay" and toggle Active
    - Assign to Sales Channels
-
-3. **Configure Freepay Webhook**
-   - In Freepay merchant dashboard, add webhook URL:
-     ```
-     https://YOUR-SHOP-DOMAIN.com/freepay/webhook
-     ```
-
-4. **Set Environment (if needed)**
-   - Add to `.env`: `APP_URL=https://YOUR-SHOP-DOMAIN.com`
 
 ## Testing
 

@@ -46,12 +46,6 @@ Navigate to: **Settings → System → Plugins → Freepay Payment → Configura
 ### Payment Settings
 - **Capture on shipment** (default: off) — automatically send a capture request to Freepay whenever a shipment is created
 
-### Webhook URL
-Configure this URL in your Freepay merchant dashboard:
-```
-https://your-shop-domain.com/freepay/webhook
-```
-
 ## Documentation
 
 - [Installation Guide](INSTALL.md) - Quick start guide
